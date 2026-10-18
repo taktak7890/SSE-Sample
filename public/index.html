@@ -215,41 +215,70 @@
         <div class="dashboard-panel logs-panel">
           <div class="panel-header logs-tabs-header">
             <div class="tab-buttons">
-              <button class="tab-btn active" id="tab-btn-visual">
+              <button class="tab-btn active" id="tab-btn-chat">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                チャット (<span id="chat-count">0</span>)
+                <span class="unread-dot" id="chat-unread-dot" style="display: none;"></span>
+              </button>
+              <button class="tab-btn" id="tab-btn-system">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                ビジュアルイベントフィード (<span id="feed-count">0</span>)
+                システム・通知 (<span id="system-count">0</span>)
               </button>
               <button class="tab-btn" id="tab-btn-raw">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-                Raw SSE パケットストリーム
+                Raw SSE ストリーム
               </button>
             </div>
 
-            <!-- フィルターセレクター（ビジュアルタブ時） -->
-            <div class="filter-controls" id="filter-controls">
-              <label for="event-filter" class="filter-label">表示:</label>
+            <!-- システムログタブ用のフィルターセレクター -->
+            <div class="filter-controls" id="filter-controls" style="display: none;">
+              <label for="event-filter" class="filter-label">絞り込み:</label>
               <select id="event-filter" class="filter-select">
                 <option value="all">すべて</option>
-                <option value="chat">メッセージ (chat)</option>
                 <option value="alert">アラート (alert)</option>
                 <option value="news">ニュース (news)</option>
-                <option value="system">システム (system)</option>
+                <option value="system">接続・参加 (system)</option>
                 <option value="no-metrics">メトリクス以外</option>
+                <option value="metrics">メトリクスのみ</option>
               </select>
             </div>
           </div>
 
-          <!-- ビジュアルフィード表示領域 -->
-          <div class="tab-content active" id="tab-visual-content">
-            <div class="events-feed-list" id="events-feed-list">
-              <div class="feed-empty-state">
-                <div class="empty-icon">📡</div>
-                <p>イベント待機中... サーバーからのSSEストリームを待っています</p>
+          <!-- 1. チャットタブ -->
+          <div class="tab-content active" id="tab-chat-content">
+            <div class="chat-container">
+              <div class="chat-messages-list" id="chat-messages-list">
+                <div class="feed-empty-state" id="chat-empty-state">
+                  <div class="empty-icon">💬</div>
+                  <p>チャットメッセージはまだありません。<br>下の入力欄からメッセージを送信すると全クライアントにSSE配信されます。</p>
+                </div>
+              </div>
+
+              <!-- チャット専用クイック送信フッター -->
+              <div class="chat-input-bar">
+                <form id="chat-quick-form" class="chat-quick-form">
+                  <input type="text" id="chat-quick-sender" class="chat-quick-sender" value="ユーザーA" placeholder="名前" required title="送信者名">
+                  <input type="text" id="chat-quick-input" class="chat-quick-input" placeholder="チャットメッセージを入力してEnter..." required autocomplete="off">
+                  <button type="submit" class="btn btn-accent btn-sm" id="btn-chat-send">
+                    <span>送信</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  </button>
+                </form>
               </div>
             </div>
           </div>
 
-          <!-- 生パケットインスペクター表示領域 -->
+          <!-- 2. システム・通知ログタブ -->
+          <div class="tab-content" id="tab-system-content">
+            <div class="events-feed-list" id="system-feed-list">
+              <div class="feed-empty-state">
+                <div class="empty-icon">📡</div>
+                <p>システムイベント待機中... サーバーからのSSEストリームを待っています</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 生パケットインスペクター表示領域 -->
           <div class="tab-content" id="tab-raw-content">
             <div class="raw-inspector-container">
               <div class="raw-inspector-hint">

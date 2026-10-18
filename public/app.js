@@ -45,14 +45,29 @@ const elements = {
   btnTriggerDanger: document.getElementById('btn-trigger-danger'),
   btnTriggerInfo: document.getElementById('btn-trigger-info'),
 
-  tabBtnVisual: document.getElementById('tab-btn-visual'),
+  tabBtnChat: document.getElementById('tab-btn-chat'),
+  tabBtnSystem: document.getElementById('tab-btn-system'),
   tabBtnRaw: document.getElementById('tab-btn-raw'),
-  tabVisualContent: document.getElementById('tab-visual-content'),
+  chatUnreadDot: document.getElementById('chat-unread-dot'),
+
+  tabChatContent: document.getElementById('tab-chat-content'),
+  tabSystemContent: document.getElementById('tab-system-content'),
   tabRawContent: document.getElementById('tab-raw-content'),
+
+  chatMessagesList: document.getElementById('chat-messages-list'),
+  chatEmptyState: document.getElementById('chat-empty-state'),
+  chatCount: document.getElementById('chat-count'),
+
+  systemFeedList: document.getElementById('system-feed-list'),
+  systemCount: document.getElementById('system-count'),
+
+  chatQuickForm: document.getElementById('chat-quick-form'),
+  chatQuickSender: document.getElementById('chat-quick-sender'),
+  chatQuickInput: document.getElementById('chat-quick-input'),
+  btnChatSend: document.getElementById('btn-chat-send'),
+
   filterControls: document.getElementById('filter-controls'),
   eventFilter: document.getElementById('event-filter'),
-  eventsFeedList: document.getElementById('events-feed-list'),
-  feedCount: document.getElementById('feed-count'),
   rawLogs: document.getElementById('raw-logs'),
 };
 
@@ -291,9 +306,13 @@ function drawRealtimeChart() {
 }
 
 // ---------------------------------------------------------------------
-// 3. イベント受信ログ & Rawインスペクターの更新
+// 3. イベント受信ログ & チャット / システム振り分け & Rawインスペクター
 // ---------------------------------------------------------------------
-function recordEvent(eventType, eventId, payload, summaryText, showInVisualFeed = true) {
+let activeTab = 'chat'; // 'chat' | 'system' | 'raw'
+let chatMessagesCount = 0;
+let systemEventsCount = 0;
+
+function recordEvent(eventType, eventId, payload, summaryText, showInFeed = true) {
   totalEventsCount++;
   elements.totalEventsCount.textContent = totalEventsCount;
 
@@ -311,9 +330,16 @@ function recordEvent(eventType, eventId, payload, summaryText, showInVisualFeed 
     data: payload,
   });
 
-  // 2. ビジュアルフィードへの追加
-  if (showInVisualFeed) {
-    appendVisualEventCard({
+  // 2. イベント種別によって「チャット」と「システム・通知」に分離
+  if (eventType === 'chat') {
+    appendChatMessage({
+      sender: payload.sender,
+      message: payload.message,
+      level: payload.level || 'info',
+      timeStr,
+    });
+  } else if (showInFeed) {
+    appendSystemEventCard({
       eventType,
       eventId,
       payload,
@@ -323,34 +349,52 @@ function recordEvent(eventType, eventId, payload, summaryText, showInVisualFeed 
   }
 }
 
-function appendRawSseLog({ id, event, data }) {
-  let rawText = '';
-  if (id) rawText += `id: ${id}\n`;
-  if (event) rawText += `event: ${event}\n`;
-  const dataStr = typeof data === 'object' ? JSON.stringify(data) : String(data);
-  const lines = dataStr.split(/\r?\n/);
-  for (const line of lines) {
-    rawText += `data: ${line}\n`;
-  }
-  rawText += '\n';
+// チャットメッセージの追加
+function appendChatMessage({ sender, message, level, timeStr }) {
+  chatMessagesCount++;
+  elements.chatCount.textContent = chatMessagesCount;
 
-  const logElem = elements.rawLogs;
-  // 空文字初期状態なら上書き
-  if (logElem.textContent.includes('// 接続待機中...')) {
-    logElem.textContent = '';
+  const emptyState = document.getElementById('chat-empty-state');
+  if (emptyState) {
+    emptyState.remove();
   }
 
-  // 最新を上部に表示
-  logElem.textContent = rawText + logElem.textContent;
+  const currentSender = elements.chatQuickSender.value.trim();
+  const isMine = sender === currentSender;
 
-  // 最大文字数制限
-  if (logElem.textContent.length > 30000) {
-    logElem.textContent = logElem.textContent.substring(0, 25000) + '\n...[古いログは切り詰められました]';
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble ${isMine ? 'mine' : ''}`;
+
+  const initial = (sender || '?').charAt(0);
+
+  bubble.innerHTML = `
+    <div class="chat-avatar" title="${escapeHtml(sender)}">${escapeHtml(initial)}</div>
+    <div class="chat-content-wrap">
+      <div class="chat-meta">
+        <span class="chat-sender-name">${escapeHtml(sender)}</span>
+        <span class="chat-time">${timeStr}</span>
+      </div>
+      <div class="chat-message-box">${escapeHtml(message)}</div>
+    </div>
+  `;
+
+  elements.chatMessagesList.appendChild(bubble);
+
+  // チャットタブが非アクティブなら未読ドットを表示
+  if (activeTab !== 'chat') {
+    elements.chatUnreadDot.style.display = 'inline-block';
   }
+
+  // スクロールを最下部へ
+  elements.chatMessagesList.scrollTop = elements.chatMessagesList.scrollHeight;
 }
 
-function appendVisualEventCard({ eventType, eventId, payload, summaryText, timeStr }) {
-  const feedList = elements.eventsFeedList;
+// システム・通知カードの追加
+function appendSystemEventCard({ eventType, eventId, payload, summaryText, timeStr }) {
+  systemEventsCount++;
+  elements.systemCount.textContent = systemEventsCount;
+
+  const feedList = elements.systemFeedList;
   const emptyState = feedList.querySelector('.feed-empty-state');
   if (emptyState) {
     emptyState.remove();
@@ -361,15 +405,8 @@ function appendVisualEventCard({ eventType, eventId, payload, summaryText, timeS
   card.dataset.eventType = eventType;
 
   let bodyContent = '';
-  if (eventType === 'chat') {
-    bodyContent = `
-      <span class="chat-sender">${escapeHtml(payload.sender)}:</span>
-      <span class="chat-text">${escapeHtml(payload.message)}</span>
-    `;
-  } else if (eventType === 'alert') {
-    bodyContent = `
-      <strong>${escapeHtml(payload.title)}</strong>: ${escapeHtml(payload.message)}
-    `;
+  if (eventType === 'alert') {
+    bodyContent = `<strong>${escapeHtml(payload.title)}</strong>: ${escapeHtml(payload.message)}`;
   } else {
     bodyContent = escapeHtml(summaryText || JSON.stringify(payload));
   }
@@ -392,13 +429,32 @@ function appendVisualEventCard({ eventType, eventId, payload, summaryText, timeS
   // 最上部に追加
   feedList.insertBefore(card, feedList.firstChild);
 
-  // フィード件数の更新
-  const totalCards = feedList.querySelectorAll('.event-card').length;
-  elements.feedCount.textContent = totalCards;
-
   // 上限100件で古いものを削除
-  if (totalCards > 100) {
+  if (feedList.querySelectorAll('.event-card').length > 100) {
     feedList.lastElementChild.remove();
+  }
+}
+
+function appendRawSseLog({ id, event, data }) {
+  let rawText = '';
+  if (id) rawText += `id: ${id}\n`;
+  if (event) rawText += `event: ${event}\n`;
+  const dataStr = typeof data === 'object' ? JSON.stringify(data) : String(data);
+  const lines = dataStr.split(/\r?\n/);
+  for (const line of lines) {
+    rawText += `data: ${line}\n`;
+  }
+  rawText += '\n';
+
+  const logElem = elements.rawLogs;
+  if (logElem.textContent.includes('// 接続待機中...')) {
+    logElem.textContent = '';
+  }
+
+  logElem.textContent = rawText + logElem.textContent;
+
+  if (logElem.textContent.length > 30000) {
+    logElem.textContent = logElem.textContent.substring(0, 25000) + '\n...[古いログは切り詰められました]';
   }
 }
 
@@ -460,64 +516,126 @@ elements.btnToggleConnection.addEventListener('click', () => {
 
 // ログクリア
 elements.btnClearLogs.addEventListener('click', () => {
-  elements.eventsFeedList.innerHTML = `
+  elements.chatMessagesList.innerHTML = `
+    <div class="feed-empty-state" id="chat-empty-state">
+      <div class="empty-icon">💬</div>
+      <p>ログがクリアされました。<br>下の入力欄からメッセージを送信すると全クライアントにSSE配信されます。</p>
+    </div>
+  `;
+  elements.systemFeedList.innerHTML = `
     <div class="feed-empty-state">
       <div class="empty-icon">📡</div>
-      <p>ログがクリアされました。新規イベントを待機中...</p>
+      <p>システムログがクリアされました。新規イベントを待機中...</p>
     </div>
   `;
   elements.rawLogs.textContent = '// ログがクリアされました\n';
-  elements.feedCount.textContent = '0';
+  chatMessagesCount = 0;
+  systemEventsCount = 0;
+  elements.chatCount.textContent = '0';
+  elements.systemCount.textContent = '0';
+  elements.chatUnreadDot.style.display = 'none';
 });
 
-// タブ切り替え（ビジュアルフィード vs Raw SSE）
-elements.tabBtnVisual.addEventListener('click', () => {
-  elements.tabBtnVisual.classList.add('active');
-  elements.tabBtnRaw.classList.remove('active');
-  elements.tabVisualContent.classList.add('active');
-  elements.tabRawContent.classList.remove('active');
-  elements.filterControls.style.display = 'flex';
-});
+// タブ切り替え（チャット vs システム・通知 vs Raw SSE）
+function switchTab(tabName) {
+  activeTab = tabName;
 
-elements.tabBtnRaw.addEventListener('click', () => {
-  elements.tabBtnRaw.classList.add('active');
-  elements.tabBtnVisual.classList.remove('active');
-  elements.tabRawContent.classList.add('active');
-  elements.tabVisualContent.classList.remove('active');
-  elements.filterControls.style.display = 'none';
-});
+  elements.tabBtnChat.classList.toggle('active', tabName === 'chat');
+  elements.tabBtnSystem.classList.toggle('active', tabName === 'system');
+  elements.tabBtnRaw.classList.toggle('active', tabName === 'raw');
 
-// フィルター選択
+  elements.tabChatContent.classList.toggle('active', tabName === 'chat');
+  elements.tabSystemContent.classList.toggle('active', tabName === 'system');
+  elements.tabRawContent.classList.toggle('active', tabName === 'raw');
+
+  // システムタブのみ絞り込みフィルターを表示
+  elements.filterControls.style.display = tabName === 'system' ? 'flex' : 'none';
+
+  // チャットタブを開いたら未読ドットを消す
+  if (tabName === 'chat') {
+    elements.chatUnreadDot.style.display = 'none';
+    elements.chatMessagesList.scrollTop = elements.chatMessagesList.scrollHeight;
+    elements.chatQuickInput.focus();
+  }
+}
+
+elements.tabBtnChat.addEventListener('click', () => switchTab('chat'));
+elements.tabBtnSystem.addEventListener('click', () => switchTab('system'));
+elements.tabBtnRaw.addEventListener('click', () => switchTab('raw'));
+
+// フィルター選択（システムタブ用）
 elements.eventFilter.addEventListener('change', (e) => {
   const filter = e.target.value;
-  const cards = elements.eventsFeedList.querySelectorAll('.event-card');
+  const cards = elements.systemFeedList.querySelectorAll('.event-card');
   cards.forEach((card) => applyFilterToCard(card, filter));
 });
 
-// ブロードキャストメッセージ送信フォーム
+// メッセージ送信共通関数
+async function sendBroadcastMessage(sender, message, level = 'info') {
+  if (!message) return;
+  const res = await fetch('/api/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender, message, level }),
+  });
+  if (!res.ok) {
+    throw new Error('送信エラー');
+  }
+}
+
+// 1. チャットタブ内のクイック送信フォーム
+elements.chatQuickForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const message = elements.chatQuickInput.value.trim();
+  const sender = elements.chatQuickSender.value.trim() || 'ユーザーA';
+
+  if (!message) return;
+
+  // 左カラムのフォームとも名前を同期
+  elements.senderName.value = sender;
+
+  try {
+    elements.btnChatSend.disabled = true;
+    await sendBroadcastMessage(sender, message, 'info');
+    elements.chatQuickInput.value = '';
+  } catch (err) {
+    console.error('送信エラー:', err);
+    alert('メッセージの送信に失敗しました');
+  } finally {
+    elements.btnChatSend.disabled = false;
+    elements.chatQuickInput.focus();
+  }
+});
+
+// 送信者名の同期（チャット側変更時）
+elements.chatQuickSender.addEventListener('input', (e) => {
+  elements.senderName.value = e.target.value;
+});
+
+// 送信者名の同期（左カラム側変更時）
+elements.senderName.addEventListener('input', (e) => {
+  elements.chatQuickSender.value = e.target.value;
+});
+
+// 2. 左カラムのブロードキャスト送信フォーム
 elements.broadcastForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const message = elements.broadcastMessage.value.trim();
-  const sender = elements.senderName.value.trim();
+  const sender = elements.senderName.value.trim() || 'ユーザーA';
   const level = elements.messageLevel.value;
 
   if (!message) return;
 
+  // チャットタブ側にも名前を同期
+  elements.chatQuickSender.value = sender;
+
   try {
     elements.broadcastMessage.disabled = true;
-    const res = await fetch('/api/broadcast', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sender, message, level }),
-    });
-    if (res.ok) {
-      elements.broadcastMessage.value = '';
-    } else {
-      alert('メッセージ送信に失敗しました');
-    }
+    await sendBroadcastMessage(sender, message, level);
+    elements.broadcastMessage.value = '';
   } catch (err) {
     console.error('送信エラー:', err);
-    alert('通信エラーが発生しました');
+    alert('メッセージ送信に失敗しました');
   } finally {
     elements.broadcastMessage.disabled = false;
     elements.broadcastMessage.focus();
