@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SSE リアルタイム通信デモ & モニター | Server-Sent Events</title>
+  <meta name="description" content="Server-Sent Events (SSE) を用いたリアルタイム通信のインタラクティブなデモアプリケーション。自動再接続、カスタムイベント、ブロードキャスト配信を体験できます。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- ヘッダー -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 11a9 9 0 0 1 9 9"></path>
+            <path d="M4 4a16 16 0 0 1 16 16"></path>
+            <circle cx="5" cy="19" r="1"></circle>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">SSE Realtime Hub</h1>
+          <p class="brand-subtitle">Server-Sent Events リアルタイム双方向インタラクション検証環境</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- 接続ステータスインジケーター -->
+        <div class="status-indicator-badge" id="connection-status-badge">
+          <span class="pulse-dot" id="status-dot"></span>
+          <span class="status-text" id="status-label">接続中...</span>
+          <span class="status-code" id="status-code">(readyState: 0)</span>
+        </div>
+
+        <div class="header-buttons">
+          <button id="btn-toggle-connection" class="btn btn-primary" title="接続の切断/再接続">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+            <span id="btn-toggle-text">切断する</span>
+          </button>
+          <button id="btn-clear-logs" class="btn btn-outline" title="ログをクリア">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            クリア
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- クライアントセッションバー -->
+    <div class="session-bar">
+      <div class="session-item">
+        <span class="session-label">クライアントID:</span>
+        <code class="session-value" id="client-id-display">未接続</code>
+      </div>
+      <div class="session-item">
+        <span class="session-label">Last-Event-ID:</span>
+        <code class="session-value" id="last-event-id-display">-</code>
+      </div>
+      <div class="session-item">
+        <span class="session-label">総受信イベント数:</span>
+        <span class="session-value highlight" id="total-events-count">0</span>
+      </div>
+      <div class="session-item">
+        <span class="session-label">接続継続時間:</span>
+        <span class="session-value" id="uptime-display">00:00:00</span>
+      </div>
+    </div>
+
+    <!-- メイングリッド -->
+    <main class="dashboard-grid">
+      <!-- 左側: メトリクス & コントロール -->
+      <section class="left-column">
+        <!-- サーバーメトリクスカード群 -->
+        <div class="metrics-cards-grid">
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">CPU使用率</span>
+              <span class="metric-badge" id="cpu-badge">LIVE</span>
+            </div>
+            <div class="metric-body">
+              <div class="metric-main-value"><span id="cpu-value">--</span><span class="unit">%</span></div>
+              <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="cpu-bar" style="width: 0%;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">メモリ使用量</span>
+              <span class="metric-badge">RSS</span>
+            </div>
+            <div class="metric-body">
+              <div class="metric-main-value"><span id="mem-value">--</span><span class="unit">MB</span></div>
+              <p class="metric-subtext">サーバープロセスのメモリ消費</p>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">同時接続クライアント</span>
+              <span class="metric-badge clients">ACTIVE</span>
+            </div>
+            <div class="metric-body">
+              <div class="metric-main-value"><span id="clients-count">--</span><span class="unit">台</span></div>
+              <p class="metric-subtext">現在SSEを開いているブラウザ数</p>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">スループット</span>
+              <span class="metric-badge">REQ/S</span>
+            </div>
+            <div class="metric-body">
+              <div class="metric-main-value"><span id="req-value">--</span><span class="unit">req/s</span></div>
+              <p class="metric-subtext">擬似リクエストトラフィック</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- リアルタイムチャート -->
+        <div class="dashboard-panel chart-panel">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+              リアルタイム CPU 使用率推移 (SSE Stream)
+            </h2>
+            <span class="panel-badge">1秒更新</span>
+          </div>
+          <div class="panel-body">
+            <canvas id="realtime-chart" height="160"></canvas>
+          </div>
+        </div>
+
+        <!-- アクション / 発信コントロール -->
+        <div class="dashboard-panel action-panel">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              クライアントからのイベント送信・発火テスト
+            </h2>
+          </div>
+          <div class="panel-body">
+            <!-- ブロードキャストメッセージ送信 -->
+            <form id="broadcast-form" class="control-form">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="sender-name">送信者名</label>
+                  <input type="text" id="sender-name" value="ユーザーA" placeholder="お名前" required>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="message-level">重要度</label>
+                  <select id="message-level">
+                    <option value="info">通常 (Info)</option>
+                    <option value="success">成功 (Success)</option>
+                    <option value="warning">注目 (Warning)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="broadcast-message">メッセージ (全接続クライアントへSSE配信)</label>
+                <div class="input-with-button">
+                  <input type="text" id="broadcast-message" placeholder="メッセージを入力して送信..." required>
+                  <button type="submit" class="btn btn-accent" id="btn-send-message">
+                    <span>送信</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            <!-- ワンクリック・カスタムイベント発火 -->
+            <div class="custom-triggers">
+              <span class="trigger-label">カスタムイベント (<code>event: alert</code>) トリガー:</span>
+              <div class="trigger-buttons">
+                <button class="btn btn-sm btn-outline-warning" id="btn-trigger-warning">⚠️ 警告アラート</button>
+                <button class="btn btn-sm btn-outline-danger" id="btn-trigger-danger">🚨 緊急メンテナンス</button>
+                <button class="btn btn-sm btn-outline-info" id="btn-trigger-info">ℹ️ システム更新通知</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SSEの特徴と解説 -->
+        <div class="dashboard-panel info-panel">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              Server-Sent Events (SSE) の仕組み
+            </h2>
+          </div>
+          <div class="panel-body info-text">
+            <div class="feature-item">
+              <strong>1. 単方向ストリーミング</strong>: サーバーからクライアントへデータをプッシュ（WebSocketと違い通常のHTTP/1.1・HTTP/2上で動作）。
+            </div>
+            <div class="feature-item">
+              <strong>2. 自動再接続 (Built-in Reconnection)</strong>: ネットワーク断時、ブラウザが <code>retry: ms</code> 設定に従い自動で再接続します。
+            </div>
+            <div class="feature-item">
+              <strong>3. Last-Event-ID による状態復元</strong>: 切断直前に受け取った <code>id</code> を <code>Last-Event-ID</code> ヘッダーとして自動再送し、データの抜け漏れを防止します。
+            </div>
+            <div class="feature-item">
+              <strong>4. イベント名のルーティング</strong>: <code>event: chat</code> のように名前をつけることで、クライアント側で <code>addEventListener('chat', ...)</code> と型安全に購読可能です。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右側: ログ & パケットインスペクター -->
+      <section class="right-column">
+        <div class="dashboard-panel logs-panel">
+          <div class="panel-header logs-tabs-header">
+            <div class="tab-buttons">
+              <button class="tab-btn active" id="tab-btn-visual">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                ビジュアルイベントフィード (<span id="feed-count">0</span>)
+              </button>
+              <button class="tab-btn" id="tab-btn-raw">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                Raw SSE パケットストリーム
+              </button>
+            </div>
+
+            <!-- フィルターセレクター（ビジュアルタブ時） -->
+            <div class="filter-controls" id="filter-controls">
+              <label for="event-filter" class="filter-label">表示:</label>
+              <select id="event-filter" class="filter-select">
+                <option value="all">すべて</option>
+                <option value="chat">メッセージ (chat)</option>
+                <option value="alert">アラート (alert)</option>
+                <option value="news">ニュース (news)</option>
+                <option value="system">システム (system)</option>
+                <option value="no-metrics">メトリクス以外</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- ビジュアルフィード表示領域 -->
+          <div class="tab-content active" id="tab-visual-content">
+            <div class="events-feed-list" id="events-feed-list">
+              <div class="feed-empty-state">
+                <div class="empty-icon">📡</div>
+                <p>イベント待機中... サーバーからのSSEストリームを待っています</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 生パケットインスペクター表示領域 -->
+          <div class="tab-content" id="tab-raw-content">
+            <div class="raw-inspector-container">
+              <div class="raw-inspector-hint">
+                💡 HTTPレスポンスストリーム (<code>text/event-stream</code>) に流れている未加工のSSEメッセージです
+              </div>
+              <pre class="raw-logs" id="raw-logs"><code>// 接続待機中...</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- フッター -->
+    <footer class="app-footer">
+      <span>SSE Sample Application &bull; Built with Node.js & Express &bull; Native EventSource API</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

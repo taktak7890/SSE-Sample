@@ -1,0 +1,15 @@
+{
+  "name": "sse-sample",
+  "version": "1.0.0",
+  "description": "Server-Sent Events (SSE) リアルタイム通信サンプル",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["sse", "server-sent-events", "realtime", "express"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
