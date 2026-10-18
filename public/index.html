@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SSE リアルタイム通信デモ & モニター | Server-Sent Events</title>
-  <meta name="description" content="Server-Sent Events (SSE) を用いたリアルタイム通信のインタラクティブなデモアプリケーション。自動再接続、カスタムイベント、ブロードキャスト配信を体験できます。">
+  <title>SSE リアルタイム通信 | Server-Sent Events Chat & Monitor</title>
+  <meta name="description" content="Server-Sent Events (SSE) を用いたリアルタイム通信アプリケーション。リアルタイムチャット、サーバーメトリクス監視、自動再接続を体験できます。">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
@@ -24,9 +24,26 @@
         </div>
         <div>
           <h1 class="brand-title">SSE Realtime Hub</h1>
-          <p class="brand-subtitle">Server-Sent Events リアルタイム双方向インタラクション検証環境</p>
+          <p class="brand-subtitle">Server-Sent Events リアルタイム通信環境</p>
         </div>
       </div>
+
+      <!-- メインタブナビゲーション -->
+      <nav class="main-tabs-nav">
+        <button class="main-tab-btn active" id="tab-btn-chat">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          チャット (<span id="chat-count">0</span>)
+          <span class="unread-dot" id="chat-unread-dot" style="display: none;"></span>
+        </button>
+        <button class="main-tab-btn" id="tab-btn-metrics">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+          サーバーメトリクス &amp; ログ (<span id="system-count">0</span>)
+        </button>
+        <button class="main-tab-btn" id="tab-btn-raw">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          Raw SSE パケット
+        </button>
+      </nav>
 
       <div class="header-actions">
         <!-- 接続ステータスインジケーター -->
@@ -64,228 +81,211 @@
         <span class="session-value highlight" id="total-events-count">0</span>
       </div>
       <div class="session-item">
+        <span class="session-label">同時接続クライアント:</span>
+        <span class="session-value highlight" id="clients-count-bar">--</span><span class="session-unit">台</span>
+      </div>
+      <div class="session-item">
         <span class="session-label">接続継続時間:</span>
         <span class="session-value" id="uptime-display">00:00:00</span>
       </div>
     </div>
 
-    <!-- メイングリッド -->
-    <main class="dashboard-grid">
-      <!-- 左側: メトリクス & コントロール -->
-      <section class="left-column">
-        <!-- サーバーメトリクスカード群 -->
-        <div class="metrics-cards-grid">
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">CPU使用率</span>
-              <span class="metric-badge" id="cpu-badge">LIVE</span>
+    <!-- メインコンテンツエリア -->
+    <main class="main-content-area">
+
+      <!-- ==========================================
+           タブ1: チャット専用画面 (デフォルト表示)
+           ========================================== -->
+      <section class="tab-pane active" id="pane-chat">
+        <div class="chat-fullscreen-card">
+          <div class="chat-fullscreen-header">
+            <div class="chat-header-info">
+              <span class="chat-header-title">💬 リアルタイム・チャットルーム</span>
+              <span class="chat-header-desc">メッセージは全クライアントに SSE (Server-Sent Events) で即座にブロードキャストされます</span>
             </div>
-            <div class="metric-body">
-              <div class="metric-main-value"><span id="cpu-value">--</span><span class="unit">%</span></div>
-              <div class="progress-bar-container">
-                <div class="progress-bar-fill" id="cpu-bar" style="width: 0%;"></div>
+            <div class="chat-header-status">
+              <span class="chat-live-badge"><span class="live-dot"></span>LIVE STREAM</span>
+            </div>
+          </div>
+
+          <!-- チャットメッセージタイムライン -->
+          <div class="chat-timeline-container" id="chat-messages-list">
+            <div class="feed-empty-state" id="chat-empty-state">
+              <div class="empty-icon">💬</div>
+              <p>チャットメッセージはまだありません。<br>下の入力バーからメッセージを送信すると、接続中の全ブラウザにリアルタイム配信されます。</p>
+            </div>
+          </div>
+
+          <!-- チャットメッセージ入力バー -->
+          <div class="chat-fullscreen-input-bar">
+            <form id="chat-fullscreen-form" class="chat-fullscreen-form">
+              <div class="form-sender-wrap">
+                <label for="chat-sender-input" class="visually-hidden">お名前</label>
+                <input type="text" id="chat-sender-input" value="ユーザーA" placeholder="送信者名" required title="送信者のお名前">
               </div>
-            </div>
-          </div>
 
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">メモリ使用量</span>
-              <span class="metric-badge">RSS</span>
-            </div>
-            <div class="metric-body">
-              <div class="metric-main-value"><span id="mem-value">--</span><span class="unit">MB</span></div>
-              <p class="metric-subtext">サーバープロセスのメモリ消費</p>
-            </div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">同時接続クライアント</span>
-              <span class="metric-badge clients">ACTIVE</span>
-            </div>
-            <div class="metric-body">
-              <div class="metric-main-value"><span id="clients-count">--</span><span class="unit">台</span></div>
-              <p class="metric-subtext">現在SSEを開いているブラウザ数</p>
-            </div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">スループット</span>
-              <span class="metric-badge">REQ/S</span>
-            </div>
-            <div class="metric-body">
-              <div class="metric-main-value"><span id="req-value">--</span><span class="unit">req/s</span></div>
-              <p class="metric-subtext">擬似リクエストトラフィック</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- リアルタイムチャート -->
-        <div class="dashboard-panel chart-panel">
-          <div class="panel-header">
-            <h2 class="panel-title">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-              リアルタイム CPU 使用率推移 (SSE Stream)
-            </h2>
-            <span class="panel-badge">1秒更新</span>
-          </div>
-          <div class="panel-body">
-            <canvas id="realtime-chart" height="160"></canvas>
-          </div>
-        </div>
-
-        <!-- アクション / 発信コントロール -->
-        <div class="dashboard-panel action-panel">
-          <div class="panel-header">
-            <h2 class="panel-title">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-              クライアントからのイベント送信・発火テスト
-            </h2>
-          </div>
-          <div class="panel-body">
-            <!-- ブロードキャストメッセージ送信 -->
-            <form id="broadcast-form" class="control-form">
-              <div class="form-row">
-                <div class="form-group flex-1">
-                  <label for="sender-name">送信者名</label>
-                  <input type="text" id="sender-name" value="ユーザーA" placeholder="お名前" required>
-                </div>
-                <div class="form-group flex-1">
-                  <label for="message-level">重要度</label>
-                  <select id="message-level">
-                    <option value="info">通常 (Info)</option>
-                    <option value="success">成功 (Success)</option>
-                    <option value="warning">注目 (Warning)</option>
-                  </select>
-                </div>
+              <div class="form-level-wrap">
+                <select id="chat-level-select" title="重要度">
+                  <option value="info">通常</option>
+                  <option value="success">成功</option>
+                  <option value="warning">注目</option>
+                </select>
               </div>
-              <div class="form-group">
-                <label for="broadcast-message">メッセージ (全接続クライアントへSSE配信)</label>
-                <div class="input-with-button">
-                  <input type="text" id="broadcast-message" placeholder="メッセージを入力して送信..." required>
-                  <button type="submit" class="btn btn-accent" id="btn-send-message">
-                    <span>送信</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                  </button>
-                </div>
+
+              <div class="form-message-wrap">
+                <input type="text" id="chat-message-input" placeholder="メッセージを入力してEnter、または送信ボタン..." required autocomplete="off">
               </div>
+
+              <button type="submit" class="btn btn-accent btn-send-large" id="btn-chat-send">
+                <span>送信</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              </button>
             </form>
+          </div>
+        </div>
+      </section>
 
-            <!-- ワンクリック・カスタムイベント発火 -->
-            <div class="custom-triggers">
-              <span class="trigger-label">カスタムイベント (<code>event: alert</code>) トリガー:</span>
-              <div class="trigger-buttons">
-                <button class="btn btn-sm btn-outline-warning" id="btn-trigger-warning">⚠️ 警告アラート</button>
-                <button class="btn btn-sm btn-outline-danger" id="btn-trigger-danger">🚨 緊急メンテナンス</button>
-                <button class="btn btn-sm btn-outline-info" id="btn-trigger-info">ℹ️ システム更新通知</button>
+
+      <!-- ==========================================
+           タブ2: サーバーメトリクス & システムログ (別タブに集約)
+           ========================================== -->
+      <section class="tab-pane" id="pane-metrics">
+        <div class="metrics-dashboard-grid">
+          <!-- 上段: サーバーメトリクスカード群 -->
+          <div class="metrics-cards-grid">
+            <div class="metric-card">
+              <div class="metric-header">
+                <span class="metric-title">CPU使用率</span>
+                <span class="metric-badge" id="cpu-badge">LIVE</span>
+              </div>
+              <div class="metric-body">
+                <div class="metric-main-value"><span id="cpu-value">--</span><span class="unit">%</span></div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar-fill" id="cpu-bar" style="width: 0%;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-header">
+                <span class="metric-title">メモリ使用量</span>
+                <span class="metric-badge">RSS</span>
+              </div>
+              <div class="metric-body">
+                <div class="metric-main-value"><span id="mem-value">--</span><span class="unit">MB</span></div>
+                <p class="metric-subtext">Node.jsプロセスのメモリ消費</p>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-header">
+                <span class="metric-title">同時接続クライアント</span>
+                <span class="metric-badge clients">ACTIVE</span>
+              </div>
+              <div class="metric-body">
+                <div class="metric-main-value"><span id="clients-count">--</span><span class="unit">台</span></div>
+                <p class="metric-subtext">現在SSEを開いているブラウザ数</p>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-header">
+                <span class="metric-title">スループット</span>
+                <span class="metric-badge">REQ/S</span>
+              </div>
+              <div class="metric-body">
+                <div class="metric-main-value"><span id="req-value">--</span><span class="unit">req/s</span></div>
+                <p class="metric-subtext">擬似リクエストトラフィック</p>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- SSEの特徴と解説 -->
-        <div class="dashboard-panel info-panel">
-          <div class="panel-header">
-            <h2 class="panel-title">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-              Server-Sent Events (SSE) の仕組み
-            </h2>
+          <!-- 中段2カラム: リアルタイムチャート & アラート発火コントロール -->
+          <div class="metrics-middle-grid">
+            <!-- リアルタイムチャート -->
+            <div class="dashboard-panel chart-panel">
+              <div class="panel-header">
+                <h2 class="panel-title">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                  リアルタイム CPU 使用率推移 (SSE Stream)
+                </h2>
+                <span class="panel-badge">1秒更新</span>
+              </div>
+              <div class="panel-body">
+                <canvas id="realtime-chart" height="160"></canvas>
+              </div>
+            </div>
+
+            <!-- アラート発火コントロール & SSE解説 -->
+            <div class="dashboard-panel action-panel">
+              <div class="panel-header">
+                <h2 class="panel-title">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  カスタムアラート発火テスト (<code>event: alert</code>)
+                </h2>
+              </div>
+              <div class="panel-body">
+                <p class="control-description">
+                  ボタンをクリックすると、全クライアントへ即座にカスタムアラートイベントが配信されます。
+                </p>
+                <div class="trigger-buttons-vertical">
+                  <button class="btn btn-outline-warning btn-full" id="btn-trigger-warning">⚠️ 警告アラートを発行 (トラフィック急増)</button>
+                  <button class="btn btn-outline-danger btn-full" id="btn-trigger-danger">🚨 緊急メンテナンス通知を発行 (サービス停止)</button>
+                  <button class="btn btn-outline-info btn-full" id="btn-trigger-info">ℹ️ システム更新通知を発行 (新バージョン適用)</button>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="panel-body info-text">
-            <div class="feature-item">
-              <strong>1. 単方向ストリーミング</strong>: サーバーからクライアントへデータをプッシュ（WebSocketと違い通常のHTTP/1.1・HTTP/2上で動作）。
+
+          <!-- 下段: システム・通知イベントログフィード -->
+          <div class="dashboard-panel system-log-panel">
+            <div class="panel-header">
+              <h2 class="panel-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                システム・通知イベントフィード
+              </h2>
+              <div class="filter-controls">
+                <label for="event-filter" class="filter-label">絞り込み:</label>
+                <select id="event-filter" class="filter-select">
+                  <option value="all">すべて</option>
+                  <option value="alert">アラートのみ (alert)</option>
+                  <option value="news">ニュースのみ (news)</option>
+                  <option value="system">接続・参加 (system)</option>
+                  <option value="no-metrics">メトリクス以外</option>
+                  <option value="metrics">メトリクスのみ</option>
+                </select>
+              </div>
             </div>
-            <div class="feature-item">
-              <strong>2. 自動再接続 (Built-in Reconnection)</strong>: ネットワーク断時、ブラウザが <code>retry: ms</code> 設定に従い自動で再接続します。
-            </div>
-            <div class="feature-item">
-              <strong>3. Last-Event-ID による状態復元</strong>: 切断直前に受け取った <code>id</code> を <code>Last-Event-ID</code> ヘッダーとして自動再送し、データの抜け漏れを防止します。
-            </div>
-            <div class="feature-item">
-              <strong>4. イベント名のルーティング</strong>: <code>event: chat</code> のように名前をつけることで、クライアント側で <code>addEventListener('chat', ...)</code> と型安全に購読可能です。
+            <div class="panel-body panel-feed-body">
+              <div class="events-feed-list" id="system-feed-list">
+                <div class="feed-empty-state">
+                  <div class="empty-icon">📡</div>
+                  <p>システムイベント待機中... サーバーからのSSEストリームを待っています</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- 右側: ログ & パケットインスペクター -->
-      <section class="right-column">
-        <div class="dashboard-panel logs-panel">
-          <div class="panel-header logs-tabs-header">
-            <div class="tab-buttons">
-              <button class="tab-btn active" id="tab-btn-chat">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                チャット (<span id="chat-count">0</span>)
-                <span class="unread-dot" id="chat-unread-dot" style="display: none;"></span>
-              </button>
-              <button class="tab-btn" id="tab-btn-system">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                システム・通知 (<span id="system-count">0</span>)
-              </button>
-              <button class="tab-btn" id="tab-btn-raw">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-                Raw SSE ストリーム
-              </button>
-            </div>
 
-            <!-- システムログタブ用のフィルターセレクター -->
-            <div class="filter-controls" id="filter-controls" style="display: none;">
-              <label for="event-filter" class="filter-label">絞り込み:</label>
-              <select id="event-filter" class="filter-select">
-                <option value="all">すべて</option>
-                <option value="alert">アラート (alert)</option>
-                <option value="news">ニュース (news)</option>
-                <option value="system">接続・参加 (system)</option>
-                <option value="no-metrics">メトリクス以外</option>
-                <option value="metrics">メトリクスのみ</option>
-              </select>
-            </div>
+      <!-- ==========================================
+           タブ3: Raw SSE パケットインスペクター
+           ========================================== -->
+      <section class="tab-pane" id="pane-raw">
+        <div class="dashboard-panel raw-panel-fullscreen">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+              Raw SSE パケットストリーム (未加工テキスト)
+            </h2>
+            <span class="panel-badge">Content-Type: text/event-stream</span>
           </div>
-
-          <!-- 1. チャットタブ -->
-          <div class="tab-content active" id="tab-chat-content">
-            <div class="chat-container">
-              <div class="chat-messages-list" id="chat-messages-list">
-                <div class="feed-empty-state" id="chat-empty-state">
-                  <div class="empty-icon">💬</div>
-                  <p>チャットメッセージはまだありません。<br>下の入力欄からメッセージを送信すると全クライアントにSSE配信されます。</p>
-                </div>
-              </div>
-
-              <!-- チャット専用クイック送信フッター -->
-              <div class="chat-input-bar">
-                <form id="chat-quick-form" class="chat-quick-form">
-                  <input type="text" id="chat-quick-sender" class="chat-quick-sender" value="ユーザーA" placeholder="名前" required title="送信者名">
-                  <input type="text" id="chat-quick-input" class="chat-quick-input" placeholder="チャットメッセージを入力してEnter..." required autocomplete="off">
-                  <button type="submit" class="btn btn-accent btn-sm" id="btn-chat-send">
-                    <span>送信</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                  </button>
-                </form>
-              </div>
+          <div class="panel-body raw-fullscreen-body">
+            <div class="raw-inspector-hint">
+              💡 HTTPレスポンスストリーム上に実際に流れている <code>id: ...\nevent: ...\ndata: ...\n\n</code> の生テキストです
             </div>
-          </div>
-
-          <!-- 2. システム・通知ログタブ -->
-          <div class="tab-content" id="tab-system-content">
-            <div class="events-feed-list" id="system-feed-list">
-              <div class="feed-empty-state">
-                <div class="empty-icon">📡</div>
-                <p>システムイベント待機中... サーバーからのSSEストリームを待っています</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- 3. 生パケットインスペクター表示領域 -->
-          <div class="tab-content" id="tab-raw-content">
-            <div class="raw-inspector-container">
-              <div class="raw-inspector-hint">
-                💡 HTTPレスポンスストリーム (<code>text/event-stream</code>) に流れている未加工のSSEメッセージです
-              </div>
-              <pre class="raw-logs" id="raw-logs"><code>// 接続待機中...</code></pre>
-            </div>
+            <pre class="raw-logs" id="raw-logs"><code>// 接続待機中...</code></pre>
           </div>
         </div>
       </section>

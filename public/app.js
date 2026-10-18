@@ -1,6 +1,6 @@
 /**
  * SSE Realtime Hub - Client Application
- * Server-Sent Events (EventSource API) の実装とリアルタイムビジュアライザ
+ * Server-Sent Events (EventSource API) の実装とリアルタイムチャット・メトリクス
  */
 
 let eventSource = null;
@@ -10,12 +10,17 @@ let totalEventsCount = 0;
 let connectionStartTime = null;
 let uptimeInterval = null;
 
+let activeTab = 'chat'; // 'chat' | 'metrics' | 'raw'
+let chatMessagesCount = 0;
+let systemEventsCount = 0;
+
 // チャート用データ（CPU履歴）
 const chartHistory = [];
 const MAX_CHART_POINTS = 30;
 
 // DOM要素の参照キャッシュ
 const elements = {
+  // ヘッダー & ステータス
   statusDot: document.getElementById('status-dot'),
   statusLabel: document.getElementById('status-label'),
   statusCode: document.getElementById('status-code'),
@@ -23,51 +28,53 @@ const elements = {
   btnToggleText: document.getElementById('btn-toggle-text'),
   btnClearLogs: document.getElementById('btn-clear-logs'),
 
+  // メインタブ
+  tabBtnChat: document.getElementById('tab-btn-chat'),
+  tabBtnMetrics: document.getElementById('tab-btn-metrics'),
+  tabBtnRaw: document.getElementById('tab-btn-raw'),
+  chatUnreadDot: document.getElementById('chat-unread-dot'),
+  chatCount: document.getElementById('chat-count'),
+  systemCount: document.getElementById('system-count'),
+
+  // タブペイン
+  paneChat: document.getElementById('pane-chat'),
+  paneMetrics: document.getElementById('pane-metrics'),
+  paneRaw: document.getElementById('pane-raw'),
+
+  // セッションバー
   clientIdDisplay: document.getElementById('client-id-display'),
   lastEventIdDisplay: document.getElementById('last-event-id-display'),
   totalEventsCount: document.getElementById('total-events-count'),
+  clientsCountBar: document.getElementById('clients-count-bar'),
   uptimeDisplay: document.getElementById('uptime-display'),
 
+  // チャット画面要素
+  chatMessagesList: document.getElementById('chat-messages-list'),
+  chatEmptyState: document.getElementById('chat-empty-state'),
+  chatFullscreenForm: document.getElementById('chat-fullscreen-form'),
+  chatSenderInput: document.getElementById('chat-sender-input'),
+  chatLevelSelect: document.getElementById('chat-level-select'),
+  chatMessageInput: document.getElementById('chat-message-input'),
+  btnChatSend: document.getElementById('btn-chat-send'),
+
+  // サーバーメトリクス画面要素
   cpuValue: document.getElementById('cpu-value'),
   cpuBar: document.getElementById('cpu-bar'),
   memValue: document.getElementById('mem-value'),
   clientsCount: document.getElementById('clients-count'),
   reqValue: document.getElementById('req-value'),
-
   canvasChart: document.getElementById('realtime-chart'),
 
-  broadcastForm: document.getElementById('broadcast-form'),
-  senderName: document.getElementById('sender-name'),
-  messageLevel: document.getElementById('message-level'),
-  broadcastMessage: document.getElementById('broadcast-message'),
-
+  // アラートトリガー
   btnTriggerWarning: document.getElementById('btn-trigger-warning'),
   btnTriggerDanger: document.getElementById('btn-trigger-danger'),
   btnTriggerInfo: document.getElementById('btn-trigger-info'),
 
-  tabBtnChat: document.getElementById('tab-btn-chat'),
-  tabBtnSystem: document.getElementById('tab-btn-system'),
-  tabBtnRaw: document.getElementById('tab-btn-raw'),
-  chatUnreadDot: document.getElementById('chat-unread-dot'),
-
-  tabChatContent: document.getElementById('tab-chat-content'),
-  tabSystemContent: document.getElementById('tab-system-content'),
-  tabRawContent: document.getElementById('tab-raw-content'),
-
-  chatMessagesList: document.getElementById('chat-messages-list'),
-  chatEmptyState: document.getElementById('chat-empty-state'),
-  chatCount: document.getElementById('chat-count'),
-
+  // システムイベントフィード
   systemFeedList: document.getElementById('system-feed-list'),
-  systemCount: document.getElementById('system-count'),
-
-  chatQuickForm: document.getElementById('chat-quick-form'),
-  chatQuickSender: document.getElementById('chat-quick-sender'),
-  chatQuickInput: document.getElementById('chat-quick-input'),
-  btnChatSend: document.getElementById('btn-chat-send'),
-
-  filterControls: document.getElementById('filter-controls'),
   eventFilter: document.getElementById('event-filter'),
+
+  // Rawログ
   rawLogs: document.getElementById('raw-logs'),
 };
 
@@ -109,6 +116,7 @@ function connectSSE() {
     elements.clientIdDisplay.textContent = clientId;
     if (data.activeClients !== undefined) {
       elements.clientsCount.textContent = data.activeClients;
+      elements.clientsCountBar.textContent = data.activeClients;
     }
 
     recordEvent('connected', e.lastEventId, data, 'サーバーへの接続が確立されました');
@@ -144,6 +152,7 @@ function connectSSE() {
     const data = JSON.parse(e.data);
     if (data.activeClients !== undefined) {
       elements.clientsCount.textContent = data.activeClients;
+      elements.clientsCountBar.textContent = data.activeClients;
     }
     const msg = data.type === 'client_joined'
       ? `クライアントが参加しました (${data.clientId})`
@@ -200,6 +209,7 @@ function updateMetricsUI(data) {
   elements.reqValue.textContent = data.requestsPerSec;
   if (data.activeClients !== undefined) {
     elements.clientsCount.textContent = data.activeClients;
+    elements.clientsCountBar.textContent = data.activeClients;
   }
 
   // チャート履歴に追加
@@ -208,18 +218,22 @@ function updateMetricsUI(data) {
     chartHistory.shift();
   }
 
-  drawRealtimeChart();
+  // メトリクスタブが表示されている場合のみCanvasを描画（描画パフォーマンス最適化）
+  if (activeTab === 'metrics') {
+    drawRealtimeChart();
+  }
 }
 
 function drawRealtimeChart() {
   const canvas = elements.canvasChart;
-  if (!canvas) return;
+  if (!canvas || !canvas.offsetParent) return; // 非表示の場合はスキップ
 
-  // 高DPIディスプレイ対応
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const width = rect.width;
   const height = rect.height;
+
+  if (width === 0 || height === 0) return;
 
   if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
     canvas.width = width * dpr;
@@ -247,13 +261,11 @@ function drawRealtimeChart() {
     return;
   }
 
-  // 折れ線グラフの座標計算
   const stepX = width / (MAX_CHART_POINTS - 1);
   const startOffsetIndex = MAX_CHART_POINTS - chartHistory.length;
 
   const points = chartHistory.map((val, idx) => {
     const x = (startOffsetIndex + idx) * stepX;
-    // 0〜100%をY軸にマップ (上側が100%, 下側が0%)
     const y = height - (val / 100) * (height - 20) - 10;
     return { x, y, val };
   });
@@ -267,7 +279,6 @@ function drawRealtimeChart() {
   ctx.moveTo(points[0].x, height);
   ctx.lineTo(points[0].x, points[0].y);
   for (let i = 1; i < points.length; i++) {
-    // スムーズな曲線
     const prev = points[i - 1];
     const curr = points[i];
     const cx = (prev.x + curr.x) / 2;
@@ -308,10 +319,6 @@ function drawRealtimeChart() {
 // ---------------------------------------------------------------------
 // 3. イベント受信ログ & チャット / システム振り分け & Rawインスペクター
 // ---------------------------------------------------------------------
-let activeTab = 'chat'; // 'chat' | 'system' | 'raw'
-let chatMessagesCount = 0;
-let systemEventsCount = 0;
-
 function recordEvent(eventType, eventId, payload, summaryText, showInFeed = true) {
   totalEventsCount++;
   elements.totalEventsCount.textContent = totalEventsCount;
@@ -359,7 +366,7 @@ function appendChatMessage({ sender, message, level, timeStr }) {
     emptyState.remove();
   }
 
-  const currentSender = elements.chatQuickSender.value.trim();
+  const currentSender = elements.chatSenderInput.value.trim();
   const isMine = sender === currentSender;
 
   const bubble = document.createElement('div');
@@ -367,11 +374,19 @@ function appendChatMessage({ sender, message, level, timeStr }) {
 
   const initial = (sender || '?').charAt(0);
 
+  let badgeHtml = '';
+  if (level === 'warning') {
+    badgeHtml = '<span class="chat-level-badge chat-level-warning">注目</span>';
+  } else if (level === 'success') {
+    badgeHtml = '<span class="chat-level-badge chat-level-success">成功</span>';
+  }
+
   bubble.innerHTML = `
     <div class="chat-avatar" title="${escapeHtml(sender)}">${escapeHtml(initial)}</div>
     <div class="chat-content-wrap">
       <div class="chat-meta">
         <span class="chat-sender-name">${escapeHtml(sender)}</span>
+        ${badgeHtml}
         <span class="chat-time">${timeStr}</span>
       </div>
       <div class="chat-message-box">${escapeHtml(message)}</div>
@@ -422,14 +437,11 @@ function appendSystemEventCard({ eventType, eventId, payload, summaryText, timeS
     <div class="event-card-body">${bodyContent}</div>
   `;
 
-  // フィルター判定
   const currentFilter = elements.eventFilter.value;
   applyFilterToCard(card, currentFilter);
 
-  // 最上部に追加
   feedList.insertBefore(card, feedList.firstChild);
 
-  // 上限100件で古いものを削除
   if (feedList.querySelectorAll('.event-card').length > 100) {
     feedList.lastElementChild.remove();
   }
@@ -503,7 +515,39 @@ function stopUptimeTimer() {
 }
 
 // ---------------------------------------------------------------------
-// 5. イベントリスナーとユーザーインタラクション
+// 5. タブ切り替え制御
+// ---------------------------------------------------------------------
+function switchTab(tabName) {
+  activeTab = tabName;
+
+  // ボタンのアクティブ状態
+  elements.tabBtnChat.classList.toggle('active', tabName === 'chat');
+  elements.tabBtnMetrics.classList.toggle('active', tabName === 'metrics');
+  elements.tabBtnRaw.classList.toggle('active', tabName === 'raw');
+
+  // ペインの表示/非表示
+  elements.paneChat.classList.toggle('active', tabName === 'chat');
+  elements.paneMetrics.classList.toggle('active', tabName === 'metrics');
+  elements.paneRaw.classList.toggle('active', tabName === 'raw');
+
+  if (tabName === 'chat') {
+    elements.chatUnreadDot.style.display = 'none';
+    elements.chatMessagesList.scrollTop = elements.chatMessagesList.scrollHeight;
+    elements.chatMessageInput.focus();
+  } else if (tabName === 'metrics') {
+    // Canvasが表示可能になったタイミングで再描画
+    requestAnimationFrame(() => {
+      drawRealtimeChart();
+    });
+  }
+}
+
+elements.tabBtnChat.addEventListener('click', () => switchTab('chat'));
+elements.tabBtnMetrics.addEventListener('click', () => switchTab('metrics'));
+elements.tabBtnRaw.addEventListener('click', () => switchTab('raw'));
+
+// ---------------------------------------------------------------------
+// 6. ユーザーアクション & フォーム送信
 // ---------------------------------------------------------------------
 // 接続 / 切断 切り替えボタン
 elements.btnToggleConnection.addEventListener('click', () => {
@@ -519,7 +563,7 @@ elements.btnClearLogs.addEventListener('click', () => {
   elements.chatMessagesList.innerHTML = `
     <div class="feed-empty-state" id="chat-empty-state">
       <div class="empty-icon">💬</div>
-      <p>ログがクリアされました。<br>下の入力欄からメッセージを送信すると全クライアントにSSE配信されます。</p>
+      <p>チャットログがクリアされました。<br>下の入力バーからメッセージを送信すると全クライアントにSSE配信されます。</p>
     </div>
   `;
   elements.systemFeedList.innerHTML = `
@@ -536,109 +580,41 @@ elements.btnClearLogs.addEventListener('click', () => {
   elements.chatUnreadDot.style.display = 'none';
 });
 
-// タブ切り替え（チャット vs システム・通知 vs Raw SSE）
-function switchTab(tabName) {
-  activeTab = tabName;
-
-  elements.tabBtnChat.classList.toggle('active', tabName === 'chat');
-  elements.tabBtnSystem.classList.toggle('active', tabName === 'system');
-  elements.tabBtnRaw.classList.toggle('active', tabName === 'raw');
-
-  elements.tabChatContent.classList.toggle('active', tabName === 'chat');
-  elements.tabSystemContent.classList.toggle('active', tabName === 'system');
-  elements.tabRawContent.classList.toggle('active', tabName === 'raw');
-
-  // システムタブのみ絞り込みフィルターを表示
-  elements.filterControls.style.display = tabName === 'system' ? 'flex' : 'none';
-
-  // チャットタブを開いたら未読ドットを消す
-  if (tabName === 'chat') {
-    elements.chatUnreadDot.style.display = 'none';
-    elements.chatMessagesList.scrollTop = elements.chatMessagesList.scrollHeight;
-    elements.chatQuickInput.focus();
-  }
-}
-
-elements.tabBtnChat.addEventListener('click', () => switchTab('chat'));
-elements.tabBtnSystem.addEventListener('click', () => switchTab('system'));
-elements.tabBtnRaw.addEventListener('click', () => switchTab('raw'));
-
-// フィルター選択（システムタブ用）
+// フィルター選択（システムログ用）
 elements.eventFilter.addEventListener('change', (e) => {
   const filter = e.target.value;
   const cards = elements.systemFeedList.querySelectorAll('.event-card');
   cards.forEach((card) => applyFilterToCard(card, filter));
 });
 
-// メッセージ送信共通関数
-async function sendBroadcastMessage(sender, message, level = 'info') {
-  if (!message) return;
-  const res = await fetch('/api/broadcast', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sender, message, level }),
-  });
-  if (!res.ok) {
-    throw new Error('送信エラー');
-  }
-}
-
-// 1. チャットタブ内のクイック送信フォーム
-elements.chatQuickForm.addEventListener('submit', async (e) => {
+// チャットメッセージ送信フォーム
+elements.chatFullscreenForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const message = elements.chatQuickInput.value.trim();
-  const sender = elements.chatQuickSender.value.trim() || 'ユーザーA';
+  const message = elements.chatMessageInput.value.trim();
+  const sender = elements.chatSenderInput.value.trim() || 'ユーザーA';
+  const level = elements.chatLevelSelect.value;
 
   if (!message) return;
-
-  // 左カラムのフォームとも名前を同期
-  elements.senderName.value = sender;
 
   try {
     elements.btnChatSend.disabled = true;
-    await sendBroadcastMessage(sender, message, 'info');
-    elements.chatQuickInput.value = '';
+    const res = await fetch('/api/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender, message, level }),
+    });
+
+    if (res.ok) {
+      elements.chatMessageInput.value = '';
+    } else {
+      alert('メッセージ送信に失敗しました');
+    }
   } catch (err) {
     console.error('送信エラー:', err);
-    alert('メッセージの送信に失敗しました');
+    alert('通信エラーが発生しました');
   } finally {
     elements.btnChatSend.disabled = false;
-    elements.chatQuickInput.focus();
-  }
-});
-
-// 送信者名の同期（チャット側変更時）
-elements.chatQuickSender.addEventListener('input', (e) => {
-  elements.senderName.value = e.target.value;
-});
-
-// 送信者名の同期（左カラム側変更時）
-elements.senderName.addEventListener('input', (e) => {
-  elements.chatQuickSender.value = e.target.value;
-});
-
-// 2. 左カラムのブロードキャスト送信フォーム
-elements.broadcastForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const message = elements.broadcastMessage.value.trim();
-  const sender = elements.senderName.value.trim() || 'ユーザーA';
-  const level = elements.messageLevel.value;
-
-  if (!message) return;
-
-  // チャットタブ側にも名前を同期
-  elements.chatQuickSender.value = sender;
-
-  try {
-    elements.broadcastMessage.disabled = true;
-    await sendBroadcastMessage(sender, message, level);
-    elements.broadcastMessage.value = '';
-  } catch (err) {
-    console.error('送信エラー:', err);
-    alert('メッセージ送信に失敗しました');
-  } finally {
-    elements.broadcastMessage.disabled = false;
-    elements.broadcastMessage.focus();
+    elements.chatMessageInput.focus();
   }
 });
 
@@ -669,7 +645,9 @@ elements.btnTriggerInfo.addEventListener('click', () => {
 
 // ウィンドウリサイズ時のグラフ再描画
 window.addEventListener('resize', () => {
-  drawRealtimeChart();
+  if (activeTab === 'metrics') {
+    drawRealtimeChart();
+  }
 });
 
 // 初回起動
